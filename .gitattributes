@@ -1,0 +1,9 @@
+# Normalize line endings. MSVC and CMake both handle LF fine, and keeping LF in
+# the working tree makes gen_stubs.py --check deterministic across platforms
+# (it compares generated text byte-for-byte against what is on disk).
+* text=auto eol=lf
+
+*.png binary
+*.dll binary
+*.lib binary
+*.exe binary

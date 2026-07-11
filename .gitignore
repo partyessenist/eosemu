@@ -1,0 +1,27 @@
+# Build output
+build*/
+out/
+cmake-build-*/
+
+# Note: src/generated/*.gen.cpp IS committed. Building must not require Python.
+
+# MSVC / VS
+.vs/
+*.user
+*.suo
+*.sdf
+*.opendb
+*.VC.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+
+# Stray compiler output
+*.obj
+*.exp

@@ -1,0 +1,6 @@
+# Epic's EOS SDK is NOT committed -- download it yourself (see place_sdk_here.txt).
+# Ignore everything dropped in this folder except the two files that make the
+# folder exist on a fresh clone.
+*
+!.gitignore
+!place_sdk_here.txt

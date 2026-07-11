@@ -1,0 +1,32 @@
+Put Epic's EOS SDK here.
+=========================
+
+EOSEmu compiles against Epic's real EOS SDK headers but does NOT bundle them --
+Epic's SDK is distributed under Epic's own license, so you download it yourself.
+
+1. Get the EOS C SDK from the Epic Games Dev Portal:
+       https://onlineservices.epicgames.com/sdk
+   Use version 1.19.1.2 to
+   match this build -- a different header set changes struct layouts and the
+   *_API_LATEST version numbers EOSEmu is pinned to.
+
+2. Unpack the WHOLE archive into THIS folder (third_party/EOSSDK/), preserving
+   its structure. Epic's archive contains SDK/, Samples/, and
+   ThirdPartyNotices/ at its root, so afterwards you should have:
+
+       third_party/EOSSDK/SDK/Include/eos_sdk.h    <- headers (required to build)
+       third_party/EOSSDK/SDK/Lib/EOSSDK-Win64-Shipping.lib   <- import lib (tests)
+       third_party/EOSSDK/SDK/Bin/...              <- Epic's real DLL (oracle)
+       third_party/EOSSDK/Samples/...              <- Epic's sample apps
+       third_party/EOSSDK/ThirdPartyNotices/...
+
+   Keeping SDK/ and Samples/ as siblings is what lets Epic's sample projects
+   resolve the SDK by their own ..\..\SDK\Include relative paths unmodified.
+
+3. Build. third_party/EOSSDK/SDK/Include is the default location the CMake build
+   and the tools look in. To use an SDK unpacked elsewhere instead, pass
+       -DEOSEMU_SDK_INCLUDE_DIR=<path to that SDK's Include>
+
+Everything you drop in here is git-ignored (see .gitignore in this folder);
+only this note and that .gitignore are committed, so the folder exists on a
+fresh clone.

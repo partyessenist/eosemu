@@ -1,0 +1,40 @@
+# Builds and runs the EOSEmu RTC shim test.
+# Compiles tests/rtc.c against the SDK import library, drops the freshly built
+# EOSEmu DLL beside the exe, and runs it. Asserts the lobby-coupled RTC room
+# lifecycle (connect/participants/mute round-trip/disconnect), custom rooms,
+# device enumeration, data sends and settings validation.
+
+$ErrorActionPreference = "Stop"
+$root = Split-Path -Parent $PSScriptRoot          # EOSEmu/
+$repo = Split-Path -Parent $root                  # repo root
+$sdkInc = Join-Path $root "third_party\EOSSDK\SDK\Include"
+$sdkLib = Join-Path $root "third_party\EOSSDK\SDK\Lib\EOSSDK-Win64-Shipping.lib"
+$dll = Join-Path $root "build\Debug\EOSSDK-Win64-Shipping.dll"
+$outDir = Join-Path $env:TEMP "eosemu_rtc"
+New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+if (-not (Test-Path $dll)) { throw "Build the DLL first: cmake --build build --config Debug" }
+Copy-Item $dll $outDir -Force
+
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+if (-not (Test-Path $vswhere)) { $vswhere = "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe" }
+$vs = & $vswhere -latest -property installationPath
+$vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+
+$src = Join-Path $root "tests\rtc.c"
+$exe = Join-Path $outDir "rtc.exe"
+$obj = Join-Path $outDir "rtc.obj"
+$installerDir = Split-Path $vswhere -Parent
+
+$prevEA = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$cmd = "set `"PATH=%PATH%;$installerDir`" && call `"$vcvars`" && cl /nologo /W3 /I `"$sdkInc`" `"$src`" /Fe:`"$exe`" /Fo:`"$obj`" /link `"$sdkLib`""
+cmd /c $cmd 2>&1 | Out-Host
+$ErrorActionPreference = $prevEA
+if (-not (Test-Path $exe)) { throw "compile failed (no exe produced)" }
+
+Write-Host "--- running rtc test ---"
+& $exe
+$code = $LASTEXITCODE
+Write-Host "--- exit code $code ---"
+exit $code

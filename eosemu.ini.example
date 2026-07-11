@@ -1,0 +1,119 @@
+# EOSEmu configuration -- example.
+#
+# Copy this to "eosemu.ini" next to EOSSDK-Win64-Shipping.dll, or point the
+# EOSEMU_CONFIG environment variable at it, or drop it in the game's
+# CacheDirectory. Search order (highest priority first):
+#   1. %EOSEMU_CONFIG%
+#   2. eosemu.ini next to the loaded DLL
+#   3. <CacheDirectory>/eosemu.ini
+# Scalars resolve to the highest-priority source that set them; list-valued keys
+# (Entitlement, OwnedItem) merge across sources. With no file present, EOSEmu
+# behaves exactly as before -- every key is optional.
+#
+# '#' or ';' at the start of a line begins a comment.
+
+[Logging]
+# EOSEmu's own log sink, independent of whether the game registers a logging
+# callback. With neither File nor Console set (the default) EOSEmu logs nothing
+# on its own. Level is off/fatal/error/warning/info/verbose/veryverbose
+# (default info); it captures that severity and everything more severe.
+#
+# File may contain "{pid}", which expands to the process id -- use this when
+# running two instances on one machine so they don't clobber a shared log
+# (e.g. eosemu_{pid}.log). Without the token the name is left as-is.
+;File    = eosemu.log
+;Console = true
+;Level   = verbose
+
+[Identity]
+# Name shown in friends lists / presence / UserInfo. Default: OS user (+profile).
+DisplayName = Player One
+# Salt so two instances on one machine appear as distinct peers (same effect as
+# the EOSEMU_PROFILE env var). Default: none.
+;Profile = red
+# Override the derived Epic / Product ID strings (32 lowercase-hex chars ideally).
+# Default: derived from machine + user (+ profile).
+;EpicAccountId   = 0123456789abcdef0123456789abcdef
+;ProductUserId   = fedcba9876543210fedcba9876543210
+# Pin the local user's SteamID64 (decimal), reported through Connect's
+# ExternalAccountInfo. Default when unset: read live from the steam_api module
+# loaded in the game's process (real Steam or a Steam emulator -- whatever id
+# it is configured with), else recovered from the Steam session ticket the game
+# passes at login, else a stable synthesised id.
+;SteamId = 76561197960287930
+# Reported locale / country. When set, Language pins both the active and the
+# override locale code. Defaults: Language "en", Country "".
+;Language = en
+;Country  = US
+
+[Presence]
+# Optional starting presence, broadcast to LAN peers. RichText wins over Status.
+;Status   = In the lobby
+;RichText = In the lobby
+
+[Ecom]
+# Entitlements the local user owns. Format:
+#   Entitlement = name:catalogItemId[:entitlementId]
+# entitlementId defaults to name; catalogItemId defaults to name. Repeatable.
+;Entitlement = season_pass:cat_item_001:ent_season
+;Entitlement = extra_maps:cat_item_002
+# Catalog item ids reported EOS_OS_Owned by EOS_Ecom_QueryOwnership. Repeatable.
+# (An Entitlement's catalogItemId is also treated as owned.)
+;OwnedItem = cat_item_001
+;OwnedItem = cat_item_002
+
+[Mods]
+# Mods the local user has installed, served to EOS_Mods_EnumerateMods /
+# CopyModInfo. Format:
+#   Mod = itemId:title:version[:artifactId]
+# title defaults to itemId, version to "1.0.0", artifactId to itemId.
+# Repeatable. Namespace sets EOS_Mod_Identifier::NamespaceId for all of them.
+;Namespace = eosemu
+;Mod = coolmap:Cool Map Pack:1.2.0
+;Mod = skins:Skin Pack:2.0.1:art_skins
+
+[Sanctions]
+# When true, the local user has one active sanction (EOS_Sanctions_*). Lets you
+# exercise a game's ban-handling path. Only the local user is ever reported
+# sanctioned. Default: false (no sanctions).
+;Sanctioned  = true
+;Action      = RESTRICT_GAME_ACCESS
+;ReferenceId = eosemu-sanction-0001
+;TimePlaced  = 1700000000
+;TimeExpires = 0
+
+[Stats]
+# Seed the local user's stat store: each key is a stat name, value an integer.
+# A game querying its own stats sees these as the baseline. Repeatable keys not
+# meaningful here (last/highest-priority value wins).
+;kills  = 10
+;deaths = 3
+
+[Achievements]
+# Achievement ids to mark unlocked for the local user. Repeatable.
+;Unlocked = ach_first_win
+;Unlocked = ach_100_kills
+
+[Network]
+# Override the LAN discovery/broadcast UDP port (default 47100) so two isolated
+# LAN groups can coexist on one subnet. All peers in a group must match.
+;DiscoveryPort = 47100
+
+[Storage]
+# When true (and the game supplies a CacheDirectory in its platform options),
+# PlayerDataStorage files are mirrored to <CacheDirectory>/eosemu_pds/ and
+# loaded back on the next run, so saves survive restarts. Default: false
+# (in-memory only, process lifetime).
+;Persist = true
+
+[TitleStorage]
+# Folder EOSEmu serves EOS Title Storage files from (read-only, title-provisioned
+# files). Some games gate features on these -- e.g. hiding the co-op menu unless
+# a live-ops config file sets `is_multiplayer_enabled`. Drop the plaintext
+# files in this folder (capture them from a
+# real run with the EOSTracer proxy). Resolution order:
+#   1. this Dir (absolute path recommended), else
+#   2. <CacheDirectory>/eosemu_titlestorage/, else
+#   3. eosemu_titlestorage/ relative to the working directory.
+# EOSEmu logs the resolved folder and hit/miss per QueryFile at info level.
+;Dir = C:\path\to\eosemu_titlestorage
