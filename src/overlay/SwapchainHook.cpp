@@ -166,34 +166,35 @@ namespace EOSEmu
 			if (H != nullptr && H->Initialized && H->ImCtx != nullptr && H->Impl->WantVisible.load())
 			{
 				ImGui::SetCurrentContext(H->ImCtx);
-				const LRESULT Handled = ImGui_ImplWin32_WndProcHandler(Wnd, Msg, W, L);
-				const ImGuiIO& Io = ImGui::GetIO();
+				ImGui_ImplWin32_WndProcHandler(Wnd, Msg, W, L);
+				// While the overlay is up it is MODAL: the game must not see any
+				// mouse or keyboard input, whether or not the cursor is currently
+				// over a panel. This matches a real game overlay -- input is fully
+				// grabbed the instant it opens -- and is what makes the game stop
+				// steering underneath it. (The toggle hotkey still works: it is
+				// polled via GetAsyncKeyState in PollHotkey, not through here.)
 				switch (Msg)
 				{
 				case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK:
 				case WM_RBUTTONDOWN: case WM_RBUTTONUP: case WM_RBUTTONDBLCLK:
 				case WM_MBUTTONDOWN: case WM_MBUTTONUP: case WM_MBUTTONDBLCLK:
+				case WM_XBUTTONDOWN: case WM_XBUTTONUP: case WM_XBUTTONDBLCLK:
 				case WM_MOUSEWHEEL: case WM_MOUSEHWHEEL: case WM_MOUSEMOVE:
-					if (Io.WantCaptureMouse) return 1; // swallow: game must not see it
-					break;
+					return 1; // swallow: game must not see it
 				case WM_INPUT:
 					// Raw-input games read the mouse through WM_INPUT, bypassing the
-					// WM_MOUSE* swallows above -- the game keeps steering its own UI
-					// underneath the overlay. Divert to DefWindowProc (required for
-					// raw-input cleanup) instead of the game while we're capturing.
-					if (Io.WantCaptureMouse || Io.WantCaptureKeyboard)
-						return DefWindowProcW(Wnd, Msg, W, L);
-					break;
+					// WM_MOUSE* swallows above -- without this the game keeps steering
+					// its camera underneath the overlay. Divert to DefWindowProc
+					// (required for raw-input cleanup) instead of the game.
+					return DefWindowProcW(Wnd, Msg, W, L);
 				case WM_SETCURSOR:
 					// The overlay draws a software cursor (MouseDrawCursor); the ImGui
 					// handler has already hidden the hardware one. Don't let the game
 					// re-set it underneath ours.
-					if (Handled != 0 || Io.WantCaptureMouse) return 1;
-					break;
+					return 1;
 				case WM_KEYDOWN: case WM_KEYUP: case WM_SYSKEYDOWN: case WM_SYSKEYUP:
-				case WM_CHAR:
-					if (Io.WantCaptureKeyboard) return 1;
-					break;
+				case WM_CHAR: case WM_SYSCHAR:
+					return 1;
 				}
 			}
 			WNDPROC Prev = (H != nullptr) ? H->PrevWndProc : nullptr;
@@ -261,9 +262,12 @@ namespace EOSEmu
 			// software cursor while the overlay is up so the user has something to
 			// point with regardless of what the game did to the OS cursor.
 			Io.MouseDrawCursor = Visible;
-			// Exclusive input only while visible AND ImGui actually wants the
-			// device -- outside that the game keeps full input.
-			Impl->Exclusive.store(Visible && (Io.WantCaptureMouse || Io.WantCaptureKeyboard));
+			// The overlay is modal: while visible the WndProc hook grabs ALL
+			// mouse/keyboard input, so we hold exclusive input the whole time it is
+			// up (not just when the cursor is over a panel). This is what drives
+			// EOS_UI_GetFriendsExclusiveInput and the bIsExclusiveInput flag in the
+			// DisplaySettingsUpdated notification that games pause/mute on.
+			Impl->Exclusive.store(Visible);
 			if (!Visible)
 			{
 				H->HasLastMouse = false;

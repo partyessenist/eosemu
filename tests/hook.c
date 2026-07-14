@@ -9,8 +9,11 @@
 //   2. the hook actually captured our swapchain on the first Present,
 //   3. EOS_UI_ShowFriends reports the overlay is available (not NotConfigured),
 //   4. presenting WHILE the overlay is visible renders ImGui onto our backbuffer
-//      without crashing (exercises the real in-hook draw path), and
-//   5. presenting AFTER EOS_Platform_Release still works -- the vtable was
+//      without crashing (exercises the real in-hook draw path),
+//   5. the visible overlay is MODAL: synthesized mouse/keyboard input is grabbed
+//      (never reaches the game's own WndProc) and GetFriendsExclusiveInput is
+//      true while visible; once hidden, input flows to the game again, and
+//   6. presenting AFTER EOS_Platform_Release still works -- the vtable was
 //      cleanly unhooked, so our code is no longer on the present path.
 //
 // It does not assert pixels; the panel drawing is not headlessly checkable. This
@@ -45,16 +48,48 @@ static void EOS_CALL OnShow(const EOS_UI_ShowFriendsCallbackInfo* Data)
 	g_ShowOk = (Data->ResultCode != EOS_NotConfigured);
 }
 
+static void EOS_CALL OnHide(const EOS_UI_HideFriendsCallbackInfo* Data) { (void)Data; }
+
+// The game's own window proc, counting the input the game actually receives.
+// While the overlay is visible these must stay at zero (the hook grabs input);
+// once hidden they must climb again.
+static int g_GameMouse = 0;
+static int g_GameKeys = 0;
+
+static LRESULT CALLBACK GameWndProc(HWND h, UINT m, WPARAM w, LPARAM l)
+{
+	switch (m)
+	{
+	case WM_MOUSEMOVE: case WM_LBUTTONDOWN: case WM_LBUTTONUP:
+	case WM_RBUTTONDOWN: case WM_RBUTTONUP: case WM_MOUSEWHEEL:
+		++g_GameMouse; break;
+	case WM_KEYDOWN: case WM_KEYUP: case WM_CHAR:
+		++g_GameKeys; break;
+	}
+	return DefWindowProcW(h, m, w, l);
+}
+
 static IDXGISwapChain* g_Sc = NULL;
 static ID3D11Device* g_Dev = NULL;
 static ID3D11DeviceContext* g_Ctx = NULL;
 static HWND g_Wnd = NULL;
 
+// Synchronously drive a burst of mouse + keyboard messages at the window. The
+// overlay hook subclassed the window, so these land in its WndProc first.
+static void SendGameInput(void)
+{
+	SendMessageW(g_Wnd, WM_MOUSEMOVE, 0, MAKELPARAM(20, 20));
+	SendMessageW(g_Wnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 20));
+	SendMessageW(g_Wnd, WM_LBUTTONUP, 0, MAKELPARAM(20, 20));
+	SendMessageW(g_Wnd, WM_KEYDOWN, 'A', 0);
+	SendMessageW(g_Wnd, WM_KEYUP, 'A', 0);
+}
+
 static int CreateGameSwapchain(void)
 {
 	WNDCLASSEXW wc; memset(&wc, 0, sizeof(wc));
 	wc.cbSize = sizeof(wc);
-	wc.lpfnWndProc = DefWindowProcW;
+	wc.lpfnWndProc = GameWndProc;
 	wc.hInstance = GetModuleHandleW(NULL);
 	wc.lpszClassName = L"EOSEmuHookTestGame";
 	RegisterClassExW(&wc);
@@ -131,6 +166,28 @@ int main(void)
 
 	int visible = (EOS_UI_GetFriendsVisible(UI, NULL) == EOS_TRUE);
 
+	// --- input grab (modal overlay) ---
+	// While visible, the overlay must swallow all game input and report exclusive
+	// input; synthesized messages must not reach the game's own WndProc.
+	EOS_UI_GetFriendsExclusiveInputOptions ExOpts; memset(&ExOpts, 0, sizeof(ExOpts));
+	ExOpts.ApiVersion = EOS_UI_GETFRIENDSEXCLUSIVEINPUT_API_LATEST;
+	int exclusiveVisible = (EOS_UI_GetFriendsExclusiveInput(UI, &ExOpts) == EOS_TRUE);
+	g_GameMouse = g_GameKeys = 0;
+	SendGameInput();
+	int blockedWhileVisible = (g_GameMouse == 0 && g_GameKeys == 0);
+
+	// Hide, let the next present observe WantVisible=false, then input must flow
+	// to the game again and exclusive input must drop.
+	EOS_UI_HideFriendsOptions HfOpts; memset(&HfOpts, 0, sizeof(HfOpts));
+	HfOpts.ApiVersion = EOS_UI_HIDEFRIENDS_API_LATEST;
+	EOS_UI_HideFriends(UI, &HfOpts, NULL, &OnHide);
+	PumpAndPresent(Platform, 10, 1);
+	int exclusiveHidden = (EOS_UI_GetFriendsExclusiveInput(UI, &ExOpts) == EOS_TRUE);
+	g_GameMouse = g_GameKeys = 0;
+	SendGameInput();
+	int passedWhileHidden = (g_GameMouse > 0 && g_GameKeys > 0);
+	int inputOk = exclusiveVisible && blockedWhileVisible && !exclusiveHidden && passedWhileHidden;
+
 	EOS_Platform_Release(Platform); // unhooks the vtable
 
 	// Present after release: our code must be off the present path. A crash here
@@ -145,7 +202,9 @@ int main(void)
 	if (g_Wnd) DestroyWindow(g_Wnd);
 
 	printf("hookInstalled=%d captured=%d showOk=%d visible=%d\n", g_HookInstalled, g_Captured, g_ShowOk, visible);
-	int ok = g_HookInstalled && g_Captured && g_ShowOk && visible;
+	printf("input{exclVisible=%d blocked=%d exclHidden=%d passed=%d}\n",
+		exclusiveVisible, blockedWhileVisible, exclusiveHidden, passedWhileHidden);
+	int ok = g_HookInstalled && g_Captured && g_ShowOk && visible && inputOk;
 	printf("HOOK %s\n", ok ? "PASS" : "FAIL");
 	return ok ? 0 : 3;
 }
