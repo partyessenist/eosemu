@@ -87,8 +87,9 @@ namespace EOSEmu
 		/// name and this accessor's name can coexist.
 		class Config& Config() { return *Config_; }
 
-		/// Monotonic tick counter, incremented once per EOS_Platform_Tick. Used
-		/// as a coarse clock for peer freshness and announcement cadence.
+		/// Monotonic tick counter, incremented once per EOS_Platform_Tick. A
+		/// coarse clock for Lobby/Session announcement freshness. (Peer-directory
+		/// liveness uses wall-clock instead -- see PeerInfo::LastSeen.)
 		uint64_t TickCount() const { return TickCount_; }
 
 		/// Full local presence, replicated to peers in the Hello extension so a
@@ -161,6 +162,13 @@ namespace EOSEmu
 	private:
 		void OnDatagram(const net::Endpoint& From, const net::WireHeader& Header, const uint8_t* Payload, uint16_t Len);
 		void BroadcastHello();
+		// Best-effort "I'm leaving" broadcast so peers flag us offline immediately
+		// on a clean release instead of waiting out PeerTimeout_. Sent from
+		// ~Platform.
+		void BroadcastGoodbye();
+		// Fires the Presence "went offline" notification for a peer that just
+		// transitioned offline (liveness timeout or a graceful Goodbye).
+		void NotifyPeerOffline(const PeerInfo& Peer);
 
 		Dispatcher Dispatch_;
 		std::unique_ptr<class Config> Config_;
@@ -170,6 +178,11 @@ namespace EOSEmu
 		// Written by Tick (game thread), read by OnDatagram (receive thread).
 		std::atomic<uint64_t> TickCount_{0};
 		std::chrono::steady_clock::time_point LastHello_;
+		// A peer is dropped once this long passes with no Hello from it. Five
+		// missed announces at the 2s cadence; overridable via [Network]
+		// PeerTimeoutSeconds. The graceful Goodbye handles the common clean-exit
+		// case sooner, so this only bounds how long a crash/kill lingers.
+		std::chrono::seconds PeerTimeout_{10};
 
 		// Local presence as announced in Hello. Guarded because a game may call
 		// EOS_Presence_SetPresence off the Tick thread while Tick broadcasts.

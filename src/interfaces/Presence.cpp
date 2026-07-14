@@ -52,7 +52,10 @@ namespace EOSEmu
 		{
 			PeerInfo Info;
 			if (!Platform_.Peers().FindByEpic(Target, Info)) return EOS_EResult::EOS_NotFound;
-			Status = static_cast<EOS_Presence_EStatus>(Info.Presence.Status);
+			// A peer that stopped announcing (timeout or Goodbye) stays a friend
+			// but reads as Offline, overriding whatever status it last announced.
+			Status = Info.Online ? static_cast<EOS_Presence_EStatus>(Info.Presence.Status)
+			                     : EOS_Presence_EStatus::EOS_PS_Offline;
 			RichText = Info.Presence.RichText;
 			Records = Info.Presence.Data;
 			ProductId = Info.Presence.ProductId;
@@ -169,7 +172,12 @@ namespace EOSEmu
 
 	void PresenceInterface::OnRemotePresenceChanged(const std::string& EpicId)
 	{
-		EOS_EpicAccountId Peer = Ids::InternEpic(EpicId);
+		NotifyPresenceChanged(Ids::InternEpic(EpicId));
+	}
+
+	void PresenceInterface::NotifyPresenceChanged(EOS_EpicAccountId Peer)
+	{
+		if (Peer == nullptr) return;
 		EOS_EpicAccountId Local = Platform_.LocalIdentity().EpicAccountId();
 		for (const auto& E : PresenceChanged_.Snapshot())
 		{

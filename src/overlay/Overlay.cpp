@@ -182,11 +182,25 @@ namespace EOSEmu
 		}
 		for (const PeerInfo& P : Peers)
 		{
-			ImGui::BulletText("%s", P.DisplayName.empty() ? "(unknown)" : P.DisplayName.c_str());
-			if (!P.Presence.RichText.empty())
+			const char* Name = P.DisplayName.empty() ? "(unknown)" : P.DisplayName.c_str();
+			if (P.Online)
 			{
+				ImGui::BulletText("%s", Name);
+				if (!P.Presence.RichText.empty())
+				{
+					ImGui::SameLine();
+					ImGui::TextDisabled("- %s", P.Presence.RichText.c_str());
+				}
+			}
+			else
+			{
+				// Keep departed peers listed (still friends) but dimmed and
+				// marked offline; they return to normal on their next Hello.
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+				ImGui::BulletText("%s", Name);
 				ImGui::SameLine();
-				ImGui::TextDisabled("- %s", P.Presence.RichText.c_str());
+				ImGui::TextUnformatted("(offline)");
+				ImGui::PopStyleColor();
 			}
 		}
 

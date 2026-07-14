@@ -6,7 +6,7 @@ namespace EOSEmu
 {
 	bool PeerDirectory::Observe(const std::string& ProductId, const std::string& EpicId,
 		const std::string& DisplayName, const PeerPresence& Presence,
-		const net::Endpoint& Endpoint, uint64_t NowTicks)
+		const net::Endpoint& Endpoint)
 	{
 		if (ProductId.empty())
 		{
@@ -17,15 +17,56 @@ namespace EOSEmu
 
 		std::lock_guard<std::mutex> Lock(Mutex_);
 		const auto It = Peers_.find(Product);
-		const bool PresenceChanged = (It == Peers_.end()) || !(It->second.Presence == Presence);
+		// Notify on a new peer, changed presence content, or a stale->online
+		// flip (the peer's rich text may be byte-identical to before it went
+		// away, but "back online" is still a presence change the game must see).
+		const bool CameBackOnline = (It != Peers_.end()) && !It->second.Online;
+		const bool PresenceChanged = (It == Peers_.end())
+			|| !(It->second.Presence == Presence) || CameBackOnline;
 		PeerInfo& Info = Peers_[Product];
 		Info.ProductUserId = Product;
 		Info.EpicAccountId = Epic;
 		Info.DisplayName = DisplayName;
 		Info.Presence = Presence;
 		Info.Endpoint = Endpoint;
-		Info.LastSeenTicks = NowTicks;
+		Info.LastSeen = std::chrono::steady_clock::now();
+		Info.Online = true;
 		return PresenceChanged;
+	}
+
+	std::vector<PeerInfo> PeerDirectory::MarkStale(std::chrono::steady_clock::duration Timeout)
+	{
+		const auto Now = std::chrono::steady_clock::now();
+		std::vector<PeerInfo> Transitioned;
+		std::lock_guard<std::mutex> Lock(Mutex_);
+		for (auto& Kv : Peers_)
+		{
+			PeerInfo& Info = Kv.second;
+			if (Info.Online && Now - Info.LastSeen > Timeout)
+			{
+				Info.Online = false;
+				Transitioned.push_back(Info);
+			}
+		}
+		return Transitioned;
+	}
+
+	bool PeerDirectory::MarkOffline(const std::string& ProductId, PeerInfo& Out)
+	{
+		if (ProductId.empty())
+		{
+			return false;
+		}
+		EOS_ProductUserId Product = Ids::InternProduct(ProductId);
+		std::lock_guard<std::mutex> Lock(Mutex_);
+		auto It = Peers_.find(Product);
+		if (It == Peers_.end() || !It->second.Online)
+		{
+			return false;
+		}
+		It->second.Online = false;
+		Out = It->second;
+		return true;
 	}
 
 	net::Endpoint PeerDirectory::EndpointFor(EOS_ProductUserId Product) const

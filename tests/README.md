@@ -47,6 +47,8 @@ pwsh tests/run_hook.ps1          # in-game swapchain hook: a stand-in D3D11 game
 pwsh tests/run_p2p_reliable.ps1  # 120 ReliableOrdered packets through 30% induced loss
 pwsh tests/run_p2p_edge.ps1      # queue-full backpressure (no reliable loss), ConnectionIgnored,
                                  #   PeerConnectionInterrupted -> Closed(TimedOut) on a vanished peer
+pwsh tests/run_presence_offline.ps1 # peer liveness: a goer leaves (Goodbye) -> watcher sees it flip to
+                                 #   Offline while staying a friend, then Online again when it returns
 pwsh tests/run_hostmig.ps1       # owner leaves -> remaining member promoted (EOS_LMS_PROMOTED) + adopts
 pwsh tests/run_storage.ps1       # PlayerDataStorage: request lifetime safety, filename validation,
                                  #   [Storage] Persist=true disk mirror surviving a process restart

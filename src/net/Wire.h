@@ -34,6 +34,13 @@ namespace EOSEmu
 			// and data records. Old readers stop after the base fields.
 			Hello = 1,
 
+			// Graceful departure: broadcast once from EOS_Platform_Release so
+			// receivers drop the sender from their peer directory immediately
+			// rather than waiting out the Hello liveness timeout. Best-effort --
+			// a crash or kill sends none, so the timeout sweep in Platform::Tick
+			// stays the reliable backstop. Payload: the sender's product user id.
+			Goodbye = 2,
+
 			// P2P (eos_p2p): direct payloads and connection lifecycle. These
 			// are unicast to the peer's advertised port. P2PAck carries the
 			// cumulative + selective acknowledgement for the reliable layer.

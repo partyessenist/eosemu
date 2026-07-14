@@ -100,6 +100,13 @@ namespace EOSEmu
 
 	Platform::~Platform()
 	{
+		// Announce our departure while the transport is still up, so peers drop
+		// us at once instead of waiting out their liveness timeout. Best-effort:
+		// a crash never reaches here, which is exactly why the timeout exists.
+		if (Net_ && Net_->Running())
+		{
+			BroadcastGoodbye();
+		}
 		// Stop the receive thread before interfaces tear down so no datagram
 		// handler runs against a half-destroyed interface. Likewise join the
 		// overlay render thread before the state it reads (peers, identity) goes.
@@ -207,6 +214,15 @@ namespace EOSEmu
 			Tag = Tag * 131u + static_cast<unsigned char>(C);
 		}
 
+		// Peer liveness timeout ([Network] PeerTimeoutSeconds). Clamp to a sane
+		// floor of twice the 2s Hello cadence so a single dropped announce never
+		// evicts a live peer; 0/unset keeps the 10s default.
+		const int CfgTimeout = Config_->GetInt("Network", "PeerTimeoutSeconds", 0);
+		if (CfgTimeout > 0)
+		{
+			PeerTimeout_ = std::chrono::seconds(CfgTimeout < 4 ? 4 : CfgTimeout);
+		}
+
 		Platform* Self = this;
 		LastHello_ = std::chrono::steady_clock::now();
 		// Optional discovery-port override isolates independent LAN groups on one
@@ -302,11 +318,28 @@ namespace EOSEmu
 					Pres = std::move(Ext);
 				}
 			}
-			const bool PresenceChanged = Peers_.Observe(ProductId, EpicId, DisplayName, Pres, From, TickCount_);
+			const bool PresenceChanged = Peers_.Observe(ProductId, EpicId, DisplayName, Pres, From);
 			if (PresenceChanged && !EpicId.empty())
 			{
 				// Posts to the Dispatcher; the observers fire from Tick.
 				Presence().OnRemotePresenceChanged(EpicId);
+			}
+			break;
+		}
+		case net::MessageType::Goodbye:
+		{
+			// A peer announced a clean departure. Flag it offline now (rather than
+			// waiting out PeerTimeout_) and post the presence-changed notification.
+			net::ByteReader R(Payload, Len);
+			const std::string ProductId = R.Str();
+			if (!R.Ok() || ProductId.empty())
+			{
+				break;
+			}
+			PeerInfo Offline;
+			if (Peers_.MarkOffline(ProductId, Offline))
+			{
+				NotifyPeerOffline(Offline);
 			}
 			break;
 		}
@@ -368,6 +401,26 @@ namespace EOSEmu
 		Net_->Broadcast(net::MessageType::Hello, W.Data().data(), W.Size());
 	}
 
+	void Platform::BroadcastGoodbye()
+	{
+		net::ByteWriter W;
+		W.Str(Identity_->ProductUserIdString());
+		Net_->Broadcast(net::MessageType::Goodbye, W.Data().data(), W.Size());
+	}
+
+	void Platform::NotifyPeerOffline(const PeerInfo& Peer)
+	{
+		// The peer stays a friend; only its presence flips to Offline, so a plain
+		// presence-changed notification is the right signal. Keys on the Epic
+		// account id: a peer that never announced one still shows offline in the
+		// overlay (fresh Snapshot each frame), it just can't be named here.
+		if (Peer.EpicAccountId == nullptr)
+		{
+			return;
+		}
+		Presence().NotifyPresenceChanged(Peer.EpicAccountId);
+	}
+
 	void Platform::Tick()
 	{
 		++TickCount_;
@@ -389,6 +442,16 @@ namespace EOSEmu
 			// members converge without depending on a change event.
 			Lobby().PeriodicAnnounce();
 			Sessions().PeriodicAnnounce();
+		}
+
+		// Flag peers that have stopped announcing (game closed, crashed, or left
+		// the network) as offline. Each transition fires a presence-changed
+		// notification so the game shows them offline; the overlay reflects it on
+		// its next Snapshot. They stay friends and come back online on their next
+		// Hello. Runs before Drain so those callbacks fire this tick.
+		for (const PeerInfo& Gone : Peers_.MarkStale(PeerTimeout_))
+		{
+			NotifyPeerOffline(Gone);
 		}
 
 		// Retransmit any unacknowledged reliable P2P packets past their RTO.

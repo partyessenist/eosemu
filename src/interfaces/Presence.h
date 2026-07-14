@@ -41,6 +41,12 @@ namespace EOSEmu
 		/// receive thread; posts OnPresenceChanged observers to the Dispatcher.
 		void OnRemotePresenceChanged(const std::string& EpicId);
 
+		/// Posts OnPresenceChanged observers for one already-interned peer id.
+		/// Used both by OnRemotePresenceChanged and by peer-departure handling
+		/// (a peer that just went offline via timeout or Goodbye). No-op on a
+		/// null id.
+		void NotifyPresenceChanged(EOS_EpicAccountId Peer);
+
 		EOS_NotificationId AddNotifyOnPresenceChanged(EOS_Presence_OnPresenceChangedCallback Cb, void* ClientData) { return PresenceChanged_.Add(Cb, ClientData); }
 		void RemoveNotifyOnPresenceChanged(EOS_NotificationId Id) { PresenceChanged_.Remove(Id); }
 		EOS_NotificationId AddNotifyJoinGameAccepted(EOS_Presence_OnJoinGameAcceptedCallback Cb, void* ClientData) { return JoinGameAccepted_.Add(Cb, ClientData); }

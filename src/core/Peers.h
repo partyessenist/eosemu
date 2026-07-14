@@ -13,6 +13,7 @@
 // Thread-safe: the receive thread writes, Tick-thread interfaces read.
 //
 
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -56,18 +57,37 @@ namespace EOSEmu
 		std::string DisplayName;
 		net::Endpoint Endpoint;
 		PeerPresence Presence;
-		uint64_t LastSeenTicks = 0;
+		// Wall-clock arrival of the peer's most recent Hello. Drives liveness
+		// expiry (see MarkStale). Wall-clock, not a tick count, so the timeout is
+		// independent of the game's frame rate.
+		std::chrono::steady_clock::time_point LastSeen;
+		// False once the peer stops announcing (timeout) or sends a Goodbye. The
+		// peer stays in the directory -- it is still a friend -- but Presence
+		// reports it EOS_PS_Offline until a fresh Hello brings it back online.
+		bool Online = true;
 	};
 
 	class PeerDirectory
 	{
 	public:
-		/// Records or refreshes a peer from a Hello. Interns the ids. Returns
-		/// true when the peer is new or its presence content changed, so the
-		/// caller can fire OnPresenceChanged observers.
+		/// Records or refreshes a peer from a Hello, stamping LastSeen and marking
+		/// it Online. Interns the ids. Returns true when the caller should fire
+		/// OnPresenceChanged observers: the peer is new, its presence content
+		/// changed, or it just came back online after being marked stale.
 		bool Observe(const std::string& ProductId, const std::string& EpicId,
 			const std::string& DisplayName, const PeerPresence& Presence,
-			const net::Endpoint& Endpoint, uint64_t NowTicks);
+			const net::Endpoint& Endpoint);
+
+		/// Flags every peer whose last Hello is older than Timeout as offline and
+		/// returns those that transitioned this call (were Online, now aren't),
+		/// so the caller announces each once. Peers stay in the directory -- they
+		/// remain friends and reappear online on their next Hello. Called per Tick.
+		std::vector<PeerInfo> MarkStale(std::chrono::steady_clock::duration Timeout);
+
+		/// Flags a single peer offline in response to a graceful Goodbye. Returns
+		/// true and fills Out only on the Online->offline transition, so the
+		/// caller announces it once; false if unknown or already offline.
+		bool MarkOffline(const std::string& ProductId, PeerInfo& Out);
 
 		/// The direct-payload endpoint for a peer, or an invalid Endpoint.
 		net::Endpoint EndpointFor(EOS_ProductUserId Product) const;
